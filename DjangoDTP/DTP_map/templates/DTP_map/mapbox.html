@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+<title>DTP map</title>
+<meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
+</head>
+<body>
+<style>
+#menu {
+position: absolute;
+background: #efefef;
+padding: 10px;
+font-family: 'Open Sans', sans-serif;
+top: 10%;
+}
+</style>
+<style>
+#map-style {
+position: absolute;
+background: #efefef;
+padding: 10px;
+font-family: 'Open Sans', sans-serif;
+top: 90%;
+right:0%;
+}
+</style>
+<div id="map"></div>
+<div id="menu">
+<form method="POST">
+      {% csrf_token %}
+      <div class="form-group">
+                    <label for="region">Регион</label>
+                    <select id="region" name="region" class="form-control">
+                        {% for region in regions %}
+                        <option value="{{region}}">{{region}}</option>
+                        {% endfor %}
+                    </select>
+      </div>
+  <div class="form-group">
+                    <label for="year"> Год </label>
+                    <select id="year" name="year" class="form-control">
+                        {% for year in years %}
+                        <option value={{year}}>{{year}}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+     <div class="form-group">
+                <label for="died"> Летальный исход </label>
+                <select id="died" name="died" class="form-control">
+                    <option value="died">Да</option>
+                    <option value="Not died">Нет</option>
+                </select>
+            </div>
+  <button type="submit" class="btn btn-primary">Готово</button>
+    </form>
+    </div>
+<div id="map-style">
+<input id="streets-v12" type="radio" name="rtoggle" value="street" checked="checked">
+<label for="streets-v12">Схема</label>
+<input id="satellite-v9" type="radio" name="rtoggle" value="satellite">
+<label for="satellite-v9">Спутник</label>
+<input id="satellite-streets-v12" type="radio" name="rtoggle" value="satellite-street">
+<label for="satellite-streets-v12">Гибрид</label>
+</div>
+<script>
+	mapboxgl.accessToken = 'pk.eyJ1IjoidHVyYm9sdW1weSIsImEiOiJjbG5mMGllMmUwaTNmMmptanpoMXZxcDZhIn0.yvglorWUd8stYVi9nyDX9w';
+const currentStyle = 'mapbox://styles/mapbox/streets-v12';
+const map = new mapboxgl.Map({
+container: 'map',
+style: currentStyle,
+center: {{center}},
+zoom: {{zoom}}
+});
+
+    var s = 'PointDTP';
+    var layerList = document.getElementById('map-style');
+    var inputs = layerList.getElementsByTagName('input');
+
+    function addSource() {
+      map.addSource(s,
+        {
+    type: 'geojson',
+    data: {{geo_json | safe}},
+    cluster: true,
+    clusterMaxZoom: 14,
+    clusterRadius: 50
+    }
+      );
+    }
+    function addLayer() {
+    clustersLayer = {
+    id: 'clusters',
+    type: 'circle',
+    source: s,
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': [
+        'step',
+        ['get', 'point_count'],
+        '#51bbd6',
+        100,
+        '#f1f075',
+        750,
+        '#f28cb1'
+      ],
+      'circle-radius': [
+        'step',
+        ['get', 'point_count'],
+        20,
+        100,
+        30,
+        750,
+        40
+      ]
+    }
+  };
+  clusterCountLayer = {
+    id: 'cluster-count',
+    type: 'symbol',
+    source: s,
+    filter: ['has', 'point_count'],
+    layout: {
+      'text-field': ['get', 'point_count_abbreviated'],
+      'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+      'text-size': 12
+    }
+  };
+  unclusteredPointLayer = {
+    id: 'unclustered-point',
+    type: 'circle',
+    source: s,
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-color': '#11b4da',
+      'circle-radius': 4,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#fff'
+    }
+  };
+      map.addLayer(clustersLayer);
+	  map.addLayer(clusterCountLayer);
+	  map.addLayer(unclusteredPointLayer);
+    }
+    map.on('style.load', function() {
+      addSource();
+      addLayer();
+    });
+
+    function switchLayer(layer) {
+      var layerId = layer.target.id;
+      map.setStyle('mapbox://styles/mapbox/' + layerId);
+    }
+
+    for (var i = 0; i < inputs.length; i++) {
+      inputs[i].onclick = switchLayer;
+    }
+	map.on('click', 'clusters', (e) => {
+const features = map.queryRenderedFeatures(e.point, {
+layers: ['clusters']
+});
+const clusterId = features[0].properties.cluster_id;
+map.getSource(s).getClusterExpansionZoom(
+clusterId,
+(err, zoom) => {
+if (err) return;
+
+map.easeTo({
+center: features[0].geometry.coordinates,
+zoom: zoom
+});
+}
+);
+});
+
+map.on('click', 'unclustered-point', (e) => {
+const coordinates = e.features[0].geometry.coordinates.slice();
+const type = e.features[0].properties.type;
+const road_type = e.features[0].properties.road_type;
+const died = e.features[0].properties.died;
+const wounded = e.features[0].properties.wounded;
+const carriageway_condition = e.features[0].properties.carriageway_condition;
+const lightning = e.features[0].properties.lightning;
+while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+}
+new mapboxgl.Popup()
+.setLngLat(coordinates)
+.setHTML(
+`Тип ДТП: ${type}
+<br>Тип дороги: ${road_type}
+<br>Погибло человек: ${died}
+<br>Ранено человек: ${wounded}
+<br>Состояние ПЧ: ${carriageway_condition}
+<br>Тип освещения: ${lightning}
+`
+)
+.addTo(map);
+});
+
+map.on('click', (e) => {
+new mapboxgl.Popup()
+.setHTML(
+`<label for="address">Введите адрес</label>
+<input type="text" name="address" class="form-control" id="address" required>
+`
+)
+.addTo(map);
+});
+
+map.on('mouseenter', 'clusters', () => {
+map.getCanvas().style.cursor = 'pointer';
+});
+map.on('mouseleave', 'clusters', () => {
+map.getCanvas().style.cursor = '';
+});
+map.addControl(new mapboxgl.NavigationControl());
+</script>
+</body>
+</html>
